@@ -1,0 +1,130 @@
+### REST Client Tests for Airtable API
+### Create a .env file with your credentials before running these tests
+
+@baseUrl = https://api.airtable.com/v0
+@baseId = {{$dotenv AIRTABLE_BASE_ID}}
+@token = {{$dotenv AIRTABLE_PAT}}
+@callsTable = {{$dotenv AIRTABLE_CALLS_TABLE}}
+@contactsTable = {{$dotenv AIRTABLE_CONTACTS_TABLE}}
+
+###############################################
+# 1. List Records from Calls Table
+###############################################
+
+GET {{baseUrl}}/{{baseId}}/{{callsTable}}
+Authorization: Bearer {{token}}
+
+###############################################
+# 2. Get Single Record (replace RECORD_ID)
+###############################################
+
+GET {{baseUrl}}/{{baseId}}/{{callsTable}}/RECORD_ID
+Authorization: Bearer {{token}}
+
+###############################################
+# 3. Create a New Call Record
+###############################################
+
+POST {{baseUrl}}/{{baseId}}/{{callsTable}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fields": {
+    "Caller Number": "+1234567890",
+    "Direction": "Inbound",
+    "Duration": 120,
+    "Date/Time": "2025-12-14T10:30:00.000Z",
+    "Status": "Completed",
+    "Notes": "Test call created via API"
+  }
+}
+
+###############################################
+# 4. Update a Record (replace RECORD_ID)
+###############################################
+
+PATCH {{baseUrl}}/{{baseId}}/{{callsTable}}/RECORD_ID
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fields": {
+    "Notes": "Updated via REST Client",
+    "Status": "Completed"
+  }
+}
+
+###############################################
+# 5. Delete a Record (replace RECORD_ID)
+###############################################
+
+DELETE {{baseUrl}}/{{baseId}}/{{callsTable}}/RECORD_ID
+Authorization: Bearer {{token}}
+
+###############################################
+# 6. List Contacts
+###############################################
+
+GET {{baseUrl}}/{{baseId}}/{{contactsTable}}
+Authorization: Bearer {{token}}
+
+###############################################
+# 7. Create a Contact
+###############################################
+
+POST {{baseUrl}}/{{baseId}}/{{contactsTable}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fields": {
+    "Name": "John Doe",
+    "Phone": "+1234567890",
+    "Email": "john.doe@example.com",
+    "Company": "Acme Corp"
+  }
+}
+
+###############################################
+# 8. Filter Records (calls from today)
+###############################################
+
+GET {{baseUrl}}/{{baseId}}/{{callsTable}}?filterByFormula=IS_SAME({Date/Time},TODAY(),'day')
+Authorization: Bearer {{token}}
+
+###############################################
+# 9. Sort Records (newest first)
+###############################################
+
+GET {{baseUrl}}/{{baseId}}/{{callsTable}}?sort[0][field]=Date/Time&sort[0][direction]=desc&maxRecords=10
+Authorization: Bearer {{token}}
+
+###############################################
+# 10. Batch Create Multiple Records
+###############################################
+
+POST {{baseUrl}}/{{baseId}}/{{callsTable}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "records": [
+    {
+      "fields": {
+        "Caller Number": "+1111111111",
+        "Direction": "Outbound",
+        "Duration": 90,
+        "Status": "Completed"
+      }
+    },
+    {
+      "fields": {
+        "Caller Number": "+2222222222",
+        "Direction": "Inbound",
+        "Duration": 180,
+        "Status": "Missed"
+      }
+    }
+  ]
+}
