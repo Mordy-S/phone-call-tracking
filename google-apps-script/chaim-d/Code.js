@@ -208,11 +208,11 @@ function isAfter5pm() {
   return hours >= 17; // 5:00 PM = hour 17
 }
 
-// Sends to ALL active emails from the Settings sheet
-// NOTE: Google Voice SMS addresses (@txt.voice.google.com) don't deliver the
-// email subject — only the body. For those addresses the subject is prepended
-// to the body and sent with a blank subject line. All other domains receive
-// the normal subject + body split.
+// Sends to ALL active emails from the Settings sheet.
+// Regular email: subject line + multi-line body.
+// Google Voice (@txt.voice.google.com) + text notifications:
+//   one-line format using ' | ' as section dividers, since SMS
+//   collapses newlines into spaces.
 function sendApptEmail(date, time, phone, notes, subject) {
   var emails = getActiveEmails();
   if (emails.length === 0) {
@@ -221,7 +221,10 @@ function sendApptEmail(date, time, phone, notes, subject) {
   }
   if (!subject) subject = formatSubject(date, time);
   var phoneLine = (phone && phone !== 'He will call you') ? phone : 'He will call you';
-  var body = 'Please call - ' + phoneLine + '\n' + notes;
+  var emailBody = 'Please call - ' + phoneLine + '\n' + notes;
+  var smsParts = [subject, 'Please call - ' + phoneLine];
+  if (notes) smsParts.push(notes);
+  var smsBody = smsParts.join(' | ');
   var options = {};
   if (isAfter5pm()) {
     options.replyTo = '8019563@gmail.com';
@@ -229,15 +232,15 @@ function sendApptEmail(date, time, phone, notes, subject) {
   for (var i = 0; i < emails.length; i++) {
     var isGoogleVoice = emails[i].toLowerCase().indexOf('@txt.voice.google.com') !== -1;
     if (isGoogleVoice) {
-      // Google Voice SMS emails don't deliver the subject — merge it into the body
-      MailApp.sendEmail(emails[i], '', subject + '\n' + body, options);
+      // Google Voice SMS: one line with | dividers — subject goes into body
+      MailApp.sendEmail(emails[i], '', smsBody, options);
     } else {
-      MailApp.sendEmail(emails[i], subject, body, options);
+      MailApp.sendEmail(emails[i], subject, emailBody, options);
     }
     Logger.log('Sent appt email to: ' + emails[i]);
   }
-  // Also send text notification
-  sendTextNotification(subject + '\n' + body);
+  // Also send text notification (always one-line with | dividers)
+  sendTextNotification(smsBody);
 }
 
 function formatSubject(dateStr, timeStr) {
@@ -309,9 +312,9 @@ function setupCheckboxes() {
   sheet.getRange(2, 6, lastRow - 1, 2).setDataValidation(cbRule);
 }
 
-// Sends reminder to ALL active emails from the Settings sheet
-// NOTE: Same Google Voice handling as sendApptEmail — subject merged into body
-// for @txt.voice.google.com addresses.
+// Sends reminder to ALL active emails from the Settings sheet.
+// Regular email: subject line + multi-line body.
+// Google Voice + text notifications: one-line format with ' | ' dividers.
 function sendReminderEmail(dateStr, timeStr, phone, notes) {
   var emails = getActiveEmails();
   if (emails.length === 0) {
@@ -322,19 +325,22 @@ function sendReminderEmail(dateStr, timeStr, phone, notes) {
   var formattedTime = formatTimeFromDate(timeStr);
   var formattedDate = formatReminderDate(dateStr);
   var phoneLine = (phone && phone !== 'He will call you') ? 'Phone: ' + phone : 'He will call you';
-  var body = formattedDate + ' @ ' + formattedTime + '\n' + phoneLine + '\nNotes: ' + notes;
+  var emailBody = formattedDate + ' @ ' + formattedTime + '\n' + phoneLine + '\nNotes: ' + notes;
+  var smsParts = [subject + ' ' + formattedDate + ' @ ' + formattedTime, phoneLine];
+  if (notes) smsParts.push('Notes: ' + notes);
+  var smsBody = smsParts.join(' | ');
   for (var i = 0; i < emails.length; i++) {
     var isGoogleVoice = emails[i].toLowerCase().indexOf('@txt.voice.google.com') !== -1;
     if (isGoogleVoice) {
-      // Google Voice SMS emails don't deliver the subject — merge it into the body
-      MailApp.sendEmail(emails[i], '', subject + '\n' + body);
+      // Google Voice SMS: one line with | dividers — subject goes into body
+      MailApp.sendEmail(emails[i], '', smsBody);
     } else {
-      MailApp.sendEmail(emails[i], subject, body);
+      MailApp.sendEmail(emails[i], subject, emailBody);
     }
     Logger.log('Sent reminder to: ' + emails[i]);
   }
-  // Also send text notification
-  sendTextNotification(subject + '\n' + body);
+  // Also send text notification (always one-line with | dividers)
+  sendTextNotification(smsBody);
 }
 
 function setupReminderTrigger() {
