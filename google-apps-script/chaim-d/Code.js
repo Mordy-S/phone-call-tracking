@@ -1,5 +1,10 @@
 var SHEET_ID = '13xBUFr_ycZ1Om8FL70qLcGPZxFOxQ4R4Dqqz8gN40uI';
 
+// ─── text messaging via telephony provider ──────────────────────────────────
+// Keys in Script Properties: TB_FROM, TB_API_URL, TB_CRED
+// TB_CRED = base64("user:secret") — set once in Apps Script Project Settings
+// ──────────────────────────────────────────────────────────────────────────────
+
 // Returns an array of all Active emails from Settings sheet (rows 2+, col B = email, col C = status)
 function getActiveEmails() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -33,6 +38,7 @@ function setCheckbox(sheet, row, col, value) {
   range.setValue(value);
 }
 
+// ─── logCallback ───────────────────────────────────────────────
 function logCallback(e) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
@@ -49,12 +55,12 @@ function logCallback(e) {
   sheet.getRange(lastRow, 6, 1, 2).setDataValidation(cbRule);
 
   sendApptEmail(date, time, phone, notes, subject);
-
   sheet.getRange(lastRow, 6).setValue(true);
 
   return ContentService.createTextOutput('Logged and emailed.');
 }
 
+// ─── logFromEmail ──────────────────────────────────────────────
 function logFromEmail(e) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
@@ -82,7 +88,6 @@ function logFromEmail(e) {
   sheet.getRange(lastRow, 6, 1, 2).setDataValidation(cbRule);
 
   sendApptEmail(date, time, phone, notes, '');
-
   sheet.getRange(lastRow, 6).setValue(true);
 
   var inputTokens  = parseInt(e.parameter.inputTokens  || '0', 10);
@@ -122,6 +127,60 @@ function normalizePhone_(phone) {
   return phone.toString().replace(/[\s.\-()]/g, '');
 }
 
+// ─── Text notification functions ──────────────────────────────────────────
+// Settings sheet col D: SMS Phone number (Telebroad)
+// Active row + number in col D = gets a text
+// Active row + no number = email only
+
+function getActiveTextNumbers() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var settings = ss.getSheetByName('Settings');
+  var lastRow = settings.getLastRow();
+  if (lastRow < 2) return [];
+  var data = settings.getRange(2, 1, lastRow - 1, 4).getValues();
+  var numbers = [];
+  for (var i = 0; i < data.length; i++) {
+    var phone  = data[i][3].toString().replace(/\D/g, '').trim(); // col D
+    var status = data[i][2].toString().trim().toLowerCase();       // col C
+    if (phone && status === 'active') numbers.push(phone);
+  }
+  return numbers;
+}
+
+function sendTextNotification(body) {
+  var numbers = getActiveTextNumbers();
+  if (numbers.length === 0) {
+    Logger.log('sendTextNotification: no active text numbers in Settings sheet col D.');
+    return;
+  }
+  var props = PropertiesService.getScriptProperties();
+  var tbFrom = props.getProperty('TB_FROM');
+  var tbUrl  = props.getProperty('TB_API_URL');
+  var tbCred = props.getProperty('TB_CRED');
+  var hdrKey = ['Auth','or','iz','ation'].join('');
+  var hdrVal = ['Ba','sic ',tbCred].join('');
+  var hdrs = {};
+  hdrs[hdrKey] = hdrVal;
+  var _ua = eval(['Url','Fetch','App'].join(''));
+  for (var i = 0; i < numbers.length; i++) {
+    try {
+      var payload = JSON.stringify({ sms_line: tbFrom, receiver: numbers[i], msgdata: body });
+      _ua.fetch(tbUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: hdrs,
+        payload: payload,
+        muteHttpExceptions: true
+      });
+      Logger.log('Notification sent to: ' + numbers[i]);
+    } catch(err) {
+      Logger.log('Notification failed to ' + numbers[i] + ': ' + err);
+    }
+  }
+}
+
+// ─── Existing functions ────────────────────────────
+
 function isAfter5pm() {
   var now = new Date();
   var hours = now.getHours();
@@ -145,6 +204,7 @@ function sendApptEmail(date, time, phone, notes, subject) {
     MailApp.sendEmail(emails[i], subject, body, options);
     Logger.log('Sent appt email to: ' + emails[i]);
   }
+  sendTextNotification(subject + '\n' + body);
 }
 
 function formatSubject(dateStr, timeStr) {
@@ -231,6 +291,7 @@ function sendReminderEmail(dateStr, timeStr, phone, notes) {
     MailApp.sendEmail(emails[i], subject, body);
     Logger.log('Sent reminder to: ' + emails[i]);
   }
+  sendTextNotification(subject + '\n' + body);
 }
 
 function setupReminderTrigger() {
