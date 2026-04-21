@@ -326,7 +326,7 @@ function sendReminderEmail(dateStr, timeStr, phone, notes) {
   var formattedDate = formatReminderDate(dateStr);
   var phoneLine = (phone && phone !== 'He will call you') ? 'Phone: ' + phone : 'He will call you';
   var emailBody = formattedDate + ' @ ' + formattedTime + '\n' + phoneLine + '\nNotes: ' + notes;
-  var smsParts = [subject + ' ' + formattedDate + ' @ ' + formattedTime, phoneLine];
+  var smsParts = [subject + ': ' + formattedDate + ' @ ' + formattedTime, phoneLine];
   if (notes) smsParts.push('Notes: ' + notes);
   var smsBody = smsParts.join(' | ');
   for (var i = 0; i < emails.length; i++) {
