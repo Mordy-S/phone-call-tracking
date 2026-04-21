@@ -39,6 +39,10 @@ function setCheckbox(sheet, row, col, value) {
 }
 
 // ─── logCallback ───────────────────────────────────────────────
+// Direct webhook call (e.g. from the LL call logger skill).
+// Always sends the email — this is a brand-new row so Appt Sent
+// is always false. No read-back needed.
+// ──────────────────────────────────────────────────────────────
 function logCallback(e) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
@@ -51,16 +55,25 @@ function logCallback(e) {
   sheet.appendRow([date, time, phone, notes, 'New', false, false, '']);
   var lastRow = sheet.getLastRow();
 
+  // Apply checkbox validation for visual display only
   var cbRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
   sheet.getRange(lastRow, 6, 1, 2).setDataValidation(cbRule);
 
+  // Send email to all active recipients
   sendApptEmail(date, time, phone, notes, subject);
+
+  // Write TRUE directly (not via .check()) so the value is a reliable boolean
   sheet.getRange(lastRow, 6).setValue(true);
 
   return ContentService.createTextOutput('Logged and emailed.');
 }
 
 // ─── logFromEmail ──────────────────────────────────────────────
+// Called by the personal-side EmailScanner.
+// Logs to the sheet AND sends the appointment email via the work account.
+// Appt Sent = TRUE after the email is sent.
+// Reminder Sent = FALSE (checkReminders will handle the 10-min reminder).
+// ──────────────────────────────────────────────────────────────
 function logFromEmail(e) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
@@ -69,6 +82,7 @@ function logFromEmail(e) {
   var phone = e.parameter.phone || 'He will call you';
   var notes = e.parameter.notes || '';
 
+  // Duplicate check: same date + time + phone = already logged
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     var existDate = data[i][0] || '';
@@ -84,21 +98,29 @@ function logFromEmail(e) {
   sheet.appendRow([date, time, phone, notes, 'New', false, false, '']);
   var lastRow = sheet.getLastRow();
 
+  // Apply checkbox validation for visual display only
   var cbRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
   sheet.getRange(lastRow, 6, 1, 2).setDataValidation(cbRule);
 
+  // Send the appointment notification email to all active recipients
   sendApptEmail(date, time, phone, notes, '');
-  sheet.getRange(lastRow, 6).setValue(true);
 
+  // Write TRUE directly (not via .check()) so the value is a reliable boolean
+  sheet.getRange(lastRow, 6).setValue(true);
+  // Col 7 (Reminder Sent) stays false — checkReminders() will fire it 10 min before
+
+  // Write input + output tokens to columns I and J, compute cost in K
+  // Pricing: claude-sonnet-4-6 via OpenRouter — $3/M input, $15/M output
   var inputTokens  = parseInt(e.parameter.inputTokens  || '0', 10);
   var outputTokens = parseInt(e.parameter.outputTokens || '0', 10);
   if (inputTokens > 0 || outputTokens > 0) {
-    sheet.getRange(lastRow, 9).setValue(inputTokens);
-    sheet.getRange(lastRow, 10).setValue(outputTokens);
+    sheet.getRange(lastRow, 9).setValue(inputTokens);   // Col I — Input Tokens
+    sheet.getRange(lastRow, 10).setValue(outputTokens); // Col J — Output Tokens
     var cost = (inputTokens * 3.0 / 1e6) + (outputTokens * 15.0 / 1e6);
-    sheet.getRange(lastRow, 11).setValue(parseFloat(cost.toFixed(8)));
+    sheet.getRange(lastRow, 11).setValue(parseFloat(cost.toFixed(8))); // Col K — Cost ($)
   }
 
+  // Ensure header row has labels for cols I, J, K
   var headerRange = sheet.getRange(1, 9, 1, 3);
   var headers = headerRange.getValues()[0];
   if (headers[0] !== 'Input Tokens') {
@@ -128,10 +150,8 @@ function normalizePhone_(phone) {
 }
 
 // ─── Text notification functions ──────────────────────────────────────────
-// Settings sheet col D: SMS Phone number (Telebroad)
-// Active row + number in col D = gets a text
-// Active row + no number = email only
 
+// Returns active phone numbers from Settings sheet col D
 function getActiveTextNumbers() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var settings = ss.getSheetByName('Settings');
@@ -147,6 +167,7 @@ function getActiveTextNumbers() {
   return numbers;
 }
 
+// Sends text messaging via telephony provider REST API
 function sendTextNotification(body) {
   var numbers = getActiveTextNumbers();
   if (numbers.length === 0) {
@@ -156,7 +177,7 @@ function sendTextNotification(body) {
   var props = PropertiesService.getScriptProperties();
   var tbFrom = props.getProperty('TB_FROM');
   var tbUrl  = props.getProperty('TB_API_URL');
-  var tbCred = props.getProperty('TB_CRED');
+  var tbCred = props.getProperty('TB_CRED'); // pre-encoded "user:secret" value
   var hdrKey = ['Auth','or','iz','ation'].join('');
   var hdrVal = ['Ba','sic ',tbCred].join('');
   var hdrs = {};
@@ -179,14 +200,19 @@ function sendTextNotification(body) {
   }
 }
 
-// ─── Existing functions ────────────────────────────
+// ─── Existing functions (unchanged) ────────────────────────────
 
 function isAfter5pm() {
   var now = new Date();
   var hours = now.getHours();
-  return hours >= 17;
+  return hours >= 17; // 5:00 PM = hour 17
 }
 
+// Sends to ALL active emails from the Settings sheet
+// NOTE: Google Voice SMS addresses (@txt.voice.google.com) don't deliver the
+// email subject — only the body. For those addresses the subject is prepended
+// to the body and sent with a blank subject line. All other domains receive
+// the normal subject + body split.
 function sendApptEmail(date, time, phone, notes, subject) {
   var emails = getActiveEmails();
   if (emails.length === 0) {
@@ -201,9 +227,16 @@ function sendApptEmail(date, time, phone, notes, subject) {
     options.replyTo = '8019563@gmail.com';
   }
   for (var i = 0; i < emails.length; i++) {
-    MailApp.sendEmail(emails[i], subject, body, options);
+    var isGoogleVoice = emails[i].toLowerCase().indexOf('@txt.voice.google.com') !== -1;
+    if (isGoogleVoice) {
+      // Google Voice SMS emails don't deliver the subject — merge it into the body
+      MailApp.sendEmail(emails[i], '', subject + '\n' + body, options);
+    } else {
+      MailApp.sendEmail(emails[i], subject, body, options);
+    }
     Logger.log('Sent appt email to: ' + emails[i]);
   }
+  // Also send text notification
   sendTextNotification(subject + '\n' + body);
 }
 
@@ -276,6 +309,9 @@ function setupCheckboxes() {
   sheet.getRange(2, 6, lastRow - 1, 2).setDataValidation(cbRule);
 }
 
+// Sends reminder to ALL active emails from the Settings sheet
+// NOTE: Same Google Voice handling as sendApptEmail — subject merged into body
+// for @txt.voice.google.com addresses.
 function sendReminderEmail(dateStr, timeStr, phone, notes) {
   var emails = getActiveEmails();
   if (emails.length === 0) {
@@ -288,9 +324,16 @@ function sendReminderEmail(dateStr, timeStr, phone, notes) {
   var phoneLine = (phone && phone !== 'He will call you') ? 'Phone: ' + phone : 'He will call you';
   var body = formattedDate + ' @ ' + formattedTime + '\n' + phoneLine + '\nNotes: ' + notes;
   for (var i = 0; i < emails.length; i++) {
-    MailApp.sendEmail(emails[i], subject, body);
+    var isGoogleVoice = emails[i].toLowerCase().indexOf('@txt.voice.google.com') !== -1;
+    if (isGoogleVoice) {
+      // Google Voice SMS emails don't deliver the subject — merge it into the body
+      MailApp.sendEmail(emails[i], '', subject + '\n' + body);
+    } else {
+      MailApp.sendEmail(emails[i], subject, body);
+    }
     Logger.log('Sent reminder to: ' + emails[i]);
   }
+  // Also send text notification
   sendTextNotification(subject + '\n' + body);
 }
 
@@ -304,6 +347,7 @@ function setupReminderTrigger() {
   ScriptApp.newTrigger('checkReminders').timeBased().everyMinutes(1).create();
 }
 
+// ─── TEST FUNCTION — run manually to verify active emails ──────
 function testEmails() {
   var emails = getActiveEmails();
   Logger.log('Active emails found: ' + emails.length);
